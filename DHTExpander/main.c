@@ -246,12 +246,6 @@ static void io_init(){
 	DDRD |= 0xFF;
 }
 
-// Helper for >255 ms delay.
-static void long_delay(uint16_t ms)
-{
-	for(; ms>0; ms--) _delay_ms(1);
-}
-
 // Translates a DHT number (0-15) to a pin number on a port.
 // If true is returned, the sensor is connected to port D.
 // If false is returned, the sensor is connected to port B.
@@ -358,9 +352,9 @@ int main(void)
 
 	// Loop forever
 	while (1)
-	{
+	{		
 		// Wait.
-		long_delay(100);
+		_delay_ms(100);
 		// Blink LED 1.
 		PORTC ^= (1<<PC1);
 
