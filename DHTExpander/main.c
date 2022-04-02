@@ -2,32 +2,38 @@
 * DHTExpander.c
 *
 * Created: 20-Jul-21 2:39:59 PM
-* Author : Leo
+* Author : Leo & Falk
 */
 
 /*
 Translates from I2C to 16 DHT22/AM2302 sensors.
-AM2301 sensors also kinda work, but they send additional zeroes.
+AM2301 sensors also kinda work, but they send additional zeros.
 
 General operation:
-0. Blink LED 1 every 100 ms (shows operation)
+0. Blink LED 1 (PC3) every 100 ms (shows operation)
 1. Wait for input signal from I2C.
-	Setting bit 0x01 via I2C in "register" 0x00 triggers a readout.
-	Setting bit 0x02 via I2C in "register" 0x00 sets power to the DHTs on or off.
+Setting bit 0 via I2C in "register" 0x00 triggers a readout.
+Once readout is complete, bit reads as 0 again.
+
+Bit 1 signals if no reset by the watchdog has occurred.
+The initial state is high, meaning no watchdog reset.
+If it gets cleared by the system it should be reset by the user
+to detect the next watchdog reset which is unintended behavior.
+
+Bits 2 and 3 correspond to output pins PC0 and PC1.
+Setting or clearing these bits manipulates pin output.
+
+Bits [4..7] describe how many sensors were read successfully last time.
+Writing to these bits or any register other than 0x00 has no effect.
 2. "Register" 0x00 is evaluated every ~100 ms.
 
 Readout operation:
 1. Read all DHTs (takes < 500 ms).
 2. Write DHT result data (see below) to "registers" 0x01 - 0x61 (96 bytes)
-3. Clear readout bit 0x01 from "register" 0x00, set readout finished bit 0x04.
-4. Subsequent I2C read of registers 0x00-0x61 will return that data.
+3. Clear readout bit 0x01 from "register" 0x00.
+4. Subsequent I2C read of registers 0x01-0x61 will return that data.
 
-In general you probably want to write 0x03 to the status register to trigger a readout.
-You'll then read 0x06 after the readout is finished.
-
-To turn off the sensors, write 0x00, to turn them back on write 0x02.
-
-LED 1 stops blinking during readout.
+LED 2 lights up while readout is in progress.
 
 Data format:
 16 groups of 6 bytes each = 96 bytes.
@@ -50,10 +56,17 @@ I2C implementation is mostly taken from https://rn-wissen.de/wiki/index.php/TWI_
 This is intended to run on some 8MHz ATmega8.
 Running on 5V is recommended for DHTs with long cables.
 
+Pin assignments
+PORTB: DHTs on PCB terminals
+PORTD: DHTs on pin headers
+PC0, PC1: output pin headers (e.g. DHT power)
+PC2: LED 2
+PC3: LED 1
+
 */
 
 #ifndef F_CPU
-# define F_CPU 8000000UL // Change timeout below!
+# define F_CPU 8000000UL
 #endif
 
 #include <avr/io.h>
@@ -72,33 +85,18 @@ Running on 5V is recommended for DHTs with long cables.
 #define E_DHT_TIMEOUT 2
 
 // Status register flags.
-#define BIT_READOUT 0x01
-#define BIT_DHT_POWER 0x02
-#define BIT_READOUT_FINISHED 0x04
+#define I2C_BIT_READOUT 0x01
+#define I2C_BIT_WDT_RESET 0x02
+#define I2C_BIT_PC0 0x04
+#define I2C_BIT_PC1 0x08
 
-// Timeout. Must be (F_CPU / 5000)
-#define DHT_TIMEOUT 1600
+// Timeout for DHT readout. Must be (F_CPU / 5000).
+// Will be evaluated at compile time. Trust me.
+#define DHT_TIMEOUT (F_CPU / 5000)
 
 // Buffer for DHT values.
 static uint8_t dht_values[(5+1)*16];
 
-// Resets the pin after reading from it by setting it to an input and enabling pull-up.
-// This is for DHTs connected to port B.
-void dht_finalize_pin_portb(uint8_t pin) {
-	// Enable pull-up
-	PORTB |= (1<<pin);
-	// Set input
-	DDRB &= ~(1<<pin);
-}
-
-// Resets the pin after reading from it by setting it to an input and enabling pull-up.
-// This is for DHTs connected to port D.
-void dht_finalize_pin_portd(uint8_t pin) {
-	// Enable pull-up
-	PORTD |= (1<<pin);
-	// Set input
-	DDRD &= ~(1<<pin);
-}
 
 // Sends the start signal and reads a response from a DHT.
 // This is for DHTs connected to port B.
@@ -113,7 +111,7 @@ int8_t dht_read_portb(uint8_t pin, uint8_t dht_data[5]) {
 
 	//begin send request
 	PORTB &= pin_mask_inverted; //low
-	DDRD |= pin_mask; // output
+	DDRB |= pin_mask; // output
 	_delay_ms(5);
 	PORTB |= pin_mask; //high
 	DDRB &= pin_mask_inverted; //input
@@ -232,105 +230,87 @@ int8_t dht_read_portd(uint8_t pin, uint8_t dht_data[5]) {
 
 // Initializes outputs.
 static void io_init(){
-	// Outputs (DHT power + 3 status LEDs)
+	// Output pins and LEDs. Values are set in main loop so no initialization necessary.
 	DDRC |= (1<<DDC0) | (1<<DDC1) | (1<<DDC2) | (1<<DDC3);
 
-	// Enable DHT power by default.
-	PORTC |= (1<<PC0);
-
-	// Make DHT pins inputs and enable pull-ups.
+	// Make DHT pins inputs and enable pull-ups (not necessary due to external pull-ups).
 	// DHT line has to be high in idle mode.
-	PORTB |= 0xFF;
-	PORTD |= 0xFF;
-	DDRB |= 0xFF;
-	DDRD |= 0xFF;
+	DDRB = 0x00;
+	DDRD = 0x00;
+	PORTB = 0xFF;
+	PORTD = 0xFF;
 }
 
-// Translates a DHT number (0-15) to a pin number on a port.
-// If true is returned, the sensor is connected to port D.
-// If false is returned, the sensor is connected to port B.
-uint8_t bankd_and_pin_no_for_dht(uint8_t *pin, uint8_t dht_no) {
-	*pin = dht_no % 8;
-	if (dht_no < 8) {
-		return 1;
-	} else {
-		return 0;
-	}
-}
 
 // Reads all 16 DHTs.
 // This reads out the sensors and then sets all pins to input+pull-up again.
 // Interrupts are disabled during readout.
-void read_all_dhts() {
-	// Pin number of the current DHT
-	uint8_t pin;
-	// Whether the current DHT is on port D
-	uint8_t port_d;
-	// Number of the current DHT (0-15)
+// Returns the number of sensors that could be read successfully.
+uint8_t read_all_dhts() {
+	// Number of successful readouts.
+	int8_t success_count = 0;
+	// Status code of last DHT readout.
+	int8_t code = 0;
+	// Global sensor numbers €[0..15]
 	uint8_t dht_no;
-	// Some return value
-	int8_t retval = 0;
-	// Whether there were any errors (for any DHT).
-	int8_t any_error = 0;
-
-	// Indicate reading in progress.
-	PORTC |= (1<<PC2);
+	// Pin number in bank €[0..7]
+	uint8_t pin;
 
 	// Reset DHT values.
 	memset(dht_values,0,sizeof(dht_values));
 
-	// Disable interrupts (we need tight timings, but no clue if this is necessary).
+	// Disable interrupts for tight timings.
 	cli();
 
 	// Read all sensors, one after another.
 	// TODO if we want really high performance we could move the 1-10ms LOW out of this function into another preparation function and do that in parallel for all DHTs.
 	for (dht_no=0; dht_no < 16; dht_no++) {
-		port_d = bankd_and_pin_no_for_dht(&pin,dht_no);
+		pin = dht_no % 8;
 
 		// Read sensor.
 		// If this succeeds, the result is written to dht_values.
-		if (port_d) {
-			retval = dht_read_portd(pin, dht_values + dht_no*6);
-		} else {
-			retval = dht_read_portb(pin, dht_values + dht_no*6);
+		if (dht_no < 8) {
+			// Read sensors [0..7] from PORTD.
+			code = dht_read_portd(pin, dht_values + dht_no*6);
+			} else {
+			// Read sensors [8..15] from PORTB.
+			code = dht_read_portb(pin, dht_values + dht_no*6);
 		}
 
 		// In case of failure: write status code for this DHT.
-		if (retval != 0) {
-			dht_values[dht_no*6 + 5] = retval;
+		if (code != 0) {
+			dht_values[dht_no*6 + 5] = code;
+			}else{
+			++success_count;
 		}
-		
-		// Track whether anything went wrong, ever.
-		any_error |= retval;
 	}
-
+	
 	// Enable interrupts.
 	sei();
 
-	// Reset all DHT pins to inputs with pull-up.
-	for (dht_no=0; dht_no < 16; dht_no++) {
-		port_d = bankd_and_pin_no_for_dht(&pin,dht_no);
+	return success_count;
+}
 
-		if (port_d) {
-			dht_finalize_pin_portd(pin);
-			} else {
-			dht_finalize_pin_portb(pin);
-		}
+// Set output pins according to status register.
+static void synchronize_output_pins(void){
+	if ((i2cdata[0] & I2C_BIT_PC0)) {
+		PORTC |= (1<<PC0);
+		} else {
+		PORTC &= ~(1<<PC0);
 	}
 
-	// Indicate readout finished.
-	PORTC &= ~(1<<PC2);
-
-	// Indicate whether the readout was (partially) not successful.
-	if (any_error) {
-		PORTC |= (1<<PC3);
+	if ((i2cdata[0] & I2C_BIT_PC1)) {
+		PORTC |= (1<<PC1);
+		} else {
+		PORTC &= ~(1<<PC1);
 	}
 }
 
-int main(void)
-{
+int main(void){
+
 	// Set inputs/outputs.
 	io_init();
+
 	// Clear DHT values.
 	memset(dht_values, 0, sizeof(dht_values));
 
@@ -338,56 +318,51 @@ int main(void)
 	for (int i=0; i<i2c_buffer_size; i++) {
 		i2cdata[i] = 0;
 	}
-	// Set status register to have DHT power enabled.
-	i2cdata[0] |= BIT_DHT_POWER;
-
-	// Enable I2C.
-	init_twi_slave(I2C_SLAVE_ADRESS);
+	// 1 means no WDT reset occurred.
+	i2cdata[0] |= I2C_BIT_WDT_RESET;
 	
 	// Enable watchdog to restart if we didn't reset it for 2 seconds.
 	wdt_enable(WDTO_2S);
-
-	// Enable interrupts.
+	// Enable I2C.
+	init_twi_slave(I2C_SLAVE_ADRESS);
+	// Enable Interrupts.
 	sei();
 
-	// Loop forever
 	while (1)
-	{		
-		// Wait.
+	{
 		_delay_ms(100);
-		// Blink LED 1.
-		PORTC ^= (1<<PC1);
+		PORTC ^= (1<<PC3); // Blink LED 1.
 
-		// Set DHT power according to whatever is written to the status register.
-		if ((i2cdata[0] & BIT_DHT_POWER)) {
-			PORTC |= (1<<PC0);
-		} else {
-			PORTC &= ~(1<<PC0);
+		wdt_reset(); // Reset watchdog timer.
+		if(MCUCSR & (1 << WDRF)){
+			// A reset by the watchdog has occurred.
+			// Signal this by clearing bit 2 in status byte.
+			i2cdata[0] &= ~(I2C_BIT_WDT_RESET);
+			// Clear flag for next time.
+			MCUCSR &= ~(1<<WDRF);
 		}
 
+		// Set output pins according to status register.
+		synchronize_output_pins();
+
 		// If there is a request to read DHTs...
-		if ((i2cdata[0] & BIT_READOUT)) {
-			// Sleep a little bit in case I2C stuff is still happening (do we need this?)
-			_delay_ms(10);
-
-			// Reset debugging LEDs.
-			PORTC &= ~((1<<PC2) | (1<<PC3));
-
-			// Read sensors.
-			read_all_dhts();
+		if ((i2cdata[0] & I2C_BIT_READOUT)) {
+			// Signal readout begins.
+			PORTC |= (1<<PC2);
+			
+			// Read sensors and store number of successful readouts.
+			i2cdata[0] &= 0x0F; // Clear relevant bits.
+			i2cdata[0] |= (read_all_dhts() << 4);
 
 			// Copy results to I2C buffer for readout.
 			for (int i=0; i<i2c_buffer_size-1;i++) {
 				i2cdata[i+1] = dht_values[i];
 			}
 
-			// Set status byte accordingly
-			i2cdata[0] &= ~BIT_READOUT;
-			i2cdata[0] |= BIT_READOUT_FINISHED;
+			// Clear bit one in status byte
+			i2cdata[0] &= ~I2C_BIT_READOUT;
+			// Signal readout over.
+			PORTC &= ~(1<<PC2);
 		}
-
-		// Reset watchdog timer.
-		wdt_reset();
 	}
 }
-
