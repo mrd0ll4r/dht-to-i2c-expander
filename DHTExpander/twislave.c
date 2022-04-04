@@ -76,17 +76,21 @@ ISR (TWI_vect)
 			// Receive next byte, ACK afterwards to request next byte
 			TWCR_ACK;
 
-		} else {
+			} else {
 			// Subsequent byte(s) of this transaction
 			// We can now receive data and use it.
+			
 			// We only allow writing the status register 0x00.
 			if(buffer_addr == 0x0)
 			{
-				// And we only allow 0x00 (no DHT power + no readout), 0x02 (no readout + DHT power), and 0x03 (DHT power + readout).
-				if (data == 0x00 || data == 0x02 || data == 0x03) {
-					// Write request to status register
-					i2cdata[buffer_addr]=data;
-				}
+				// Temporary inconsistency of status register is fine because interrupts are disabled.
+				// We only allow writing to bits 2,3 and setting bits 0,1.
+				
+				// Clear relevant bits except bits 0,1.
+				i2cdata[buffer_addr] &= 0b11110011;
+				// Discard read-only bits.
+				data &= 0b00001111;
+				i2cdata[buffer_addr] |= data;
 			}
 
 			// Increase address for subsequent writes (which are not supported)
@@ -120,7 +124,7 @@ ISR (TWI_vect)
 			TWDR = i2cdata[buffer_addr];
 			// Auto increment address
 			buffer_addr++;
-		} else {
+			} else {
 			// Invalid address/read too many bytes/... -- we send 0xFE as an error
 			TWDR=0xFE;
 		}
