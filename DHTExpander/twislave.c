@@ -22,13 +22,12 @@
 // The currently selected register address (within i2cdata) to be read from/written to.
 volatile uint8_t buffer_addr;
 
-void init_twi_slave(uint8_t addr)
-{
-	// I2C addresses are 7 bits! We have to shift.
-	TWAR=(addr<<1);
-	TWCR &= ~((1<<TWSTA)|(1<<TWSTO));
-	TWCR|= (1<<TWEA) | (1<<TWEN)|(1<<TWIE);
-	buffer_addr=0xFF;
+void init_twi_slave(uint8_t addr) {
+    // I2C addresses are 7 bits! We have to shift.
+    TWAR = (addr << 1);
+    TWCR &= ~((1 << TWSTA) | (1 << TWSTO));
+    TWCR |= (1 << TWEA) | (1 << TWEN) | (1 << TWIE);
+    buffer_addr = 0xFF;
 }
 
 // Macros for TWI bitmasks
@@ -43,103 +42,95 @@ void init_twi_slave(uint8_t addr)
 #define TWCR_RESET TWCR = (1<<TWEN)|(1<<TWIE)|(1<<TWINT)|(1<<TWEA)|(0<<TWSTA)|(1<<TWSTO)|(0<<TWWC);
 
 // TWI interrupt service routine
-ISR (TWI_vect)
-{
-	uint8_t data=0;
+ISR (TWI_vect) {
+    uint8_t data=0;
 
-	// Check TWI status register
-	switch (TW_STATUS)
-	{
-		// Slave Receiver
+    // Check TWI status register
+    switch (TW_STATUS) {
+        // Slave Receiver
 
-		// 0x60 Slave Receiver, Slave was addressed
-		case TW_SR_SLA_ACK:
-		// Receive next byte of data, send ACK afterwards
-		TWCR_ACK;
-		// Set "register address" to undefined
-		buffer_addr=0xFF;
-		break;
-		
-		// 0x80 Slave Receiver, a byte of data has been received
-		case TW_SR_DATA_ACK:
-		// Read received data
-		data=TWDR;
-		
-		// First access of this transaction, set register address
-		if (buffer_addr == 0xFF) {
-			// First byte of this transaction
-			// This specifies the register address, usually.
-			if (data < i2c_buffer_size) {
-				buffer_addr = data;
-			}
+        // 0x60 Slave Receiver, Slave was addressed
+        case TW_SR_SLA_ACK:
+            // Receive next byte of data, send ACK afterwards
+            TWCR_ACK;
+            // Set "register address" to undefined
+            buffer_addr = 0xFF;
+        break;
 
-			// Receive next byte, ACK afterwards to request next byte
-			TWCR_ACK;
+        // 0x80 Slave Receiver, a byte of data has been received
+        case TW_SR_DATA_ACK:
+            // Read received data
+            data = TWDR;
 
-			} else {
-			// Subsequent byte(s) of this transaction
-			// We can now receive data and use it.
-			
-			// We only allow writing the status register 0x00.
-			if(buffer_addr == 0x0)
-			{
-				// Temporary inconsistency of status register is fine because interrupts are disabled.
-				// We only allow writing to bits 2,3 and setting bits 0,1.
-				
-				// Clear relevant bits except bits 0,1.
-				i2cdata[buffer_addr] &= 0b11110011;
-				// Discard read-only bits.
-				data &= 0b00001111;
-				i2cdata[buffer_addr] |= data;
-			}
+            // First access of this transaction, set register address
+            if (buffer_addr == 0xFF) {
+                // First byte of this transaction
+                // This specifies the register address, usually.
+                if (data < i2c_buffer_size) {
+                    buffer_addr = data;
+                }
 
-			// Increase address for subsequent writes (which are not supported)
-			buffer_addr++;
+                // Receive next byte, ACK afterwards to request next byte
+                TWCR_ACK;
+            } else {
+                // Subsequent byte(s) of this transaction
+                // We can now receive data and use it.
 
-			// Receive next byte, ACK afterwards to request next byte
-			TWCR_ACK;
-		}
-		break;
+                // We only allow writing the status register 0x00.
+                if (buffer_addr == 0x0) {
+                    // Temporary inconsistency of status register is fine because interrupts are disabled.
+                    // We only allow writing to bits 2,3 and setting bits 0,1.
+
+                    // Clear relevant bits except bits 0,1.
+                    i2cdata[buffer_addr] &= 0b11110011;
+                    // Discard read-only bits.
+                    data &= 0b00001111;
+                    i2cdata[buffer_addr] |= data;
+                }
+
+                // Increase address for subsequent writes (which are not supported)
+                buffer_addr++;
+
+                // Receive next byte, ACK afterwards to request next byte
+                TWCR_ACK;
+            }
+        break;
 
 
-		//Slave transmitter
+        //Slave transmitter
 
-		//0xA8 Slave wurde im Lesemodus adressiert und hat ein ACK zurückgegeben.
-		case TW_ST_SLA_ACK:
-		// fallthrough
+        //0xA8 Slave wurde im Lesemodus adressiert und hat ein ACK zurÃ¼ckgegeben.
+        case TW_ST_SLA_ACK:
+            // fallthrough
 
-		// 0xB8 Slave Transmitter, data requested
-		case TW_ST_DATA_ACK:
+        // 0xB8 Slave Transmitter, data requested
+        case TW_ST_DATA_ACK:
+            if (buffer_addr == 0xFF) {
+                // This is either a pure read transaction (no Write+Read) or something else went wrong.
+                // We'll just assume they want to read everything...
+                buffer_addr = 0x00;
+            }
 
-		if (buffer_addr == 0xFF)
-		{
-			// This is either a pure read transaction (no Write+Read) or something else went wrong.
-			// We'll just assume they want to read everything...
-			buffer_addr=0x00;
-		}
-		
-		if(buffer_addr<i2c_buffer_size+1)
-		{
-			// Send one byte of data
-			TWDR = i2cdata[buffer_addr];
-			// Auto increment address
-			buffer_addr++;
-			} else {
-			// Invalid address/read too many bytes/... -- we send 0xFE as an error
-			TWDR=0xFE;
-		}
-		TWCR_ACK;
-		break;
+            if (buffer_addr < i2c_buffer_size + 1) {
+                // Send one byte of data
+                TWDR = i2cdata[buffer_addr];
+                // Auto increment address
+                buffer_addr++;
+            } else {
+                // Invalid address/read too many bytes/... -- we send 0xFE as an error
+                TWDR = 0xFE;
+            }
+            TWCR_ACK;
+        break;
 
-		case TW_SR_STOP:
-		TWCR_ACK;
-		break;
-		case TW_ST_DATA_NACK: // 0xC0 Keine Daten mehr gefordert
-		case TW_SR_DATA_NACK: // 0x88
-		case TW_ST_LAST_DATA: // 0xC8  Last data byte in TWDR has been transmitted (TWEA = “0”); ACK has been received
-		default:
-		TWCR_RESET;
-		break;
-		
-	}
+        case TW_SR_STOP:
+            TWCR_ACK;
+        break;
+        case TW_ST_DATA_NACK: // 0xC0 Keine Daten mehr gefordert
+        case TW_SR_DATA_NACK: // 0x88
+        case TW_ST_LAST_DATA: // 0xC8  Last data byte in TWDR has been transmitted (TWEA = Â“0Â”); ACK has been received
+        default:
+            TWCR_RESET;
+        break;
+    }
 }

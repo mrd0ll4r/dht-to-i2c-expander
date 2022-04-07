@@ -78,7 +78,7 @@ PC3: LED 1
 #include "twislave.h"
 
 // I2C slave address.
-#define I2C_SLAVE_ADRESS 0x3D
+#define I2C_SLAVE_ADDRESS 0x3D
 
 // DHT readout error codes.
 #define E_DHT_NO_START_CONDITION 1
@@ -95,150 +95,161 @@ PC3: LED 1
 #define DHT_TIMEOUT (F_CPU / 5000)
 
 // Buffer for DHT values.
-static uint8_t dht_values[(5+1)*16];
-
+static uint8_t dht_values[(5 + 1) * 16];
 
 // Sends the start signal and reads a response from a DHT.
 // This is for DHTs connected to port B.
 int8_t dht_read_portb(uint8_t pin, uint8_t dht_data[5]) {
-	uint8_t bits[5]; // we always read 5 bytes from DHT
-	uint8_t i,j = 0;
-	
-	// Calculate these because we need them all the time.
-	// If we don't do this they'll be recalculated all the time and mess up our timings.
-	uint8_t pin_mask = (1<<pin);
-	uint8_t pin_mask_inverted = ~(1<<pin);
+    uint8_t bits[5]; // we always read 5 bytes from DHT
+    uint8_t i, j = 0;
 
-	//begin send request
-	PORTB &= pin_mask_inverted; //low
-	DDRB |= pin_mask; // output
-	_delay_ms(5);
-	PORTB |= pin_mask; //high
-	DDRB &= pin_mask_inverted; //input
-	_delay_us(40);
+    // Calculate these because we need them all the time.
+    // If we don't do this they'll be recalculated all the time and mess up our timings.
+    uint8_t pin_mask = (1 << pin);
+    uint8_t pin_mask_inverted = ~(1 << pin);
 
-	//check first start condition
-	if((PINB & pin_mask)) {
-		return E_DHT_NO_START_CONDITION;
-	}
-	_delay_us(80);
-	
-	//check second start condition
-	if(!(PINB & pin_mask)) {
-		return E_DHT_NO_START_CONDITION;
-	}
-	_delay_us(80);
+    // Begin send request.
+    // Set output low.
+    PORTB &= pin_mask_inverted;
+    DDRB |= pin_mask;
+    _delay_ms(5);
 
-	//read-in data
-	uint16_t timeoutcounter = 0;
-	for (j=0; j<sizeof(bits); j++) { //for each byte (5 total)
-		uint8_t result = 0;
-		for(i=0; i<8; i++) {//for each bit in each byte (8 total)
-			timeoutcounter = 0;
-			while(!(PINB & pin_mask)) { //wait for an high input (non blocking)
-				timeoutcounter++;
-				if(timeoutcounter > DHT_TIMEOUT) {
-					return E_DHT_TIMEOUT;
-				}
-			}
-			_delay_us(30);
-			if(PINB & pin_mask){
-				result |= (1<<(7-i));
-			}
-			timeoutcounter = 0;
-			while(PINB & pin_mask) {
-				timeoutcounter++;
-				if(timeoutcounter > DHT_TIMEOUT) {
-					return E_DHT_TIMEOUT;
-				}
-			}
-		}
-		bits[j] = result;
-	}
+    // Set input with pullup.
+    PORTB |= pin_mask;
+    DDRB &= pin_mask_inverted;
+    _delay_us(40);
 
-	for(i=0;i<sizeof(bits);i++) {
-		dht_data[i] = bits[i];
-	}
+    // Check first start condition.
+    if ((PINB & pin_mask)) {
+        return E_DHT_NO_START_CONDITION;
+    }
+    _delay_us(80);
 
-	return 0;
+    // Check second start condition.
+    if (!(PINB & pin_mask)) {
+        return E_DHT_NO_START_CONDITION;
+    }
+    _delay_us(80);
+
+    // Read sensor data.
+    uint16_t timeout_counter = 0;
+    // For each byte (5 total)
+    for (j = 0; j < sizeof(bits); j++) {
+        uint8_t result = 0;
+        // For each bit in each byte (8 total)
+        for (i = 0; i < 8; i++) {
+            timeout_counter = 0;
+            // Wait for a high input.
+            while (!(PINB & pin_mask)) {
+                timeout_counter++;
+                if (timeout_counter > DHT_TIMEOUT) {
+                    return E_DHT_TIMEOUT;
+                }
+            }
+            _delay_us(30);
+            if (PINB & pin_mask) {
+                result |= (1 << (7 - i));
+            }
+            timeout_counter = 0;
+            while (PINB & pin_mask) {
+                timeout_counter++;
+                if (timeout_counter > DHT_TIMEOUT) {
+                    return E_DHT_TIMEOUT;
+                }
+            }
+        }
+        bits[j] = result;
+    }
+
+    for (i = 0; i < sizeof(bits); i++) {
+        dht_data[i] = bits[i];
+    }
+
+    return 0;
 }
 
 // Sends the start signal and reads a response from a DHT.
 // This is for DHTs connected to port D.
 int8_t dht_read_portd(uint8_t pin, uint8_t dht_data[5]) {
-	uint8_t bits[5];	// we always read 5 bytes from DHT
-	uint8_t i,j = 0;
-	
-	// Calculate these because we need them all the time.
-	// If we don't do this they'll be recalculated all the time and mess up our timings.
-	uint8_t pin_mask = (1<<pin);
-	uint8_t pin_mask_inverted = ~(1<<pin);
+    uint8_t bits[5];    // we always read 5 bytes from DHT
+    uint8_t i, j = 0;
 
-	//begin send request
-	PORTD &= pin_mask_inverted; //low
-	DDRD |= pin_mask; // output
-	_delay_ms(5);
-	PORTD |= pin_mask; //high
-	DDRD &= pin_mask_inverted; //input
-	_delay_us(40);
+    // Calculate these because we need them all the time.
+    // If we don't do this they'll be recalculated all the time and mess up our timings.
+    uint8_t pin_mask = (1 << pin);
+    uint8_t pin_mask_inverted = ~(1 << pin);
 
-	//check first start condition
-	if((PIND & pin_mask)) {
-		return E_DHT_NO_START_CONDITION;
-	}
-	_delay_us(80);
-	
-	//check second start condition
-	if(!(PIND & pin_mask)) {
-		return E_DHT_NO_START_CONDITION;
-	}
-	_delay_us(80);
+    // Begin send request.
+    // Set output low.
+    PORTD &= pin_mask_inverted;
+    DDRD |= pin_mask;
+    _delay_ms(5);
 
-	//read-in data
-	uint16_t timeoutcounter = 0;
-	for (j=0; j<sizeof(bits); j++) { //for each byte (5 total)
-		uint8_t result = 0;
-		for(i=0; i<8; i++) {//for each bit in each byte (8 total)
-			timeoutcounter = 0;
-			while(!(PIND & pin_mask)) { //wait for an high input (non blocking)
-				timeoutcounter++;
-				if(timeoutcounter > DHT_TIMEOUT) {
-					return E_DHT_TIMEOUT;
-				}
-			}
-			_delay_us(30);
-			if(PIND & pin_mask){
-				result |= (1<<(7-i));
-			}
-			timeoutcounter = 0;
-			while(PIND & pin_mask) {
-				timeoutcounter++;
-				if(timeoutcounter > DHT_TIMEOUT) {
-					return E_DHT_TIMEOUT;
-				}
-			}
-		}
-		bits[j] = result;
-	}
+    // Set input with pullup.
+    PORTD |= pin_mask;
+    DDRD &= pin_mask_inverted;
+    _delay_us(40);
 
-	for(i=0;i<sizeof(bits);i++) {
-		dht_data[i] = bits[i];
-	}
+    // Check first start condition.
+    if ((PIND & pin_mask)) {
+        return E_DHT_NO_START_CONDITION;
+    }
+    _delay_us(80);
 
-	return 0;
+    // Check second start condition.
+    if (!(PIND & pin_mask)) {
+        return E_DHT_NO_START_CONDITION;
+    }
+    _delay_us(80);
+
+    // Read sensor data.
+    uint16_t timeout_counter = 0;
+    // For each byte (5 total)
+    for (j = 0; j < sizeof(bits); j++) {
+        uint8_t result = 0;
+        // For each bit in each byte (8 total)
+        for (i = 0; i < 8; i++) {
+            timeout_counter = 0;
+            // Wait for a high input
+            while (!(PIND & pin_mask)) {
+                timeout_counter++;
+                if (timeout_counter > DHT_TIMEOUT) {
+                    return E_DHT_TIMEOUT;
+                }
+            }
+            _delay_us(30);
+            if (PIND & pin_mask) {
+                result |= (1 << (7 - i));
+            }
+            timeout_counter = 0;
+            while (PIND & pin_mask) {
+                timeout_counter++;
+                if (timeout_counter > DHT_TIMEOUT) {
+                    return E_DHT_TIMEOUT;
+                }
+            }
+        }
+        bits[j] = result;
+    }
+
+    for (i = 0; i < sizeof(bits); i++) {
+        dht_data[i] = bits[i];
+    }
+
+    return 0;
 }
 
 // Initializes outputs.
-static void io_init(){
-	// Output pins and LEDs. Values are set in main loop so no initialization necessary.
-	DDRC |= (1<<DDC0) | (1<<DDC1) | (1<<DDC2) | (1<<DDC3);
+static void io_init() {
+    // Output pins and LEDs. Values are set in main loop so no initialization necessary.
+    DDRC |= (1 << DDC0) | (1 << DDC1) | (1 << DDC2) | (1 << DDC3);
 
-	// Make DHT pins inputs and enable pull-ups (not necessary due to external pull-ups).
-	// DHT line has to be high in idle mode.
-	DDRB = 0x00;
-	DDRD = 0x00;
-	PORTB = 0xFF;
-	PORTD = 0xFF;
+    // Make DHT pins inputs and enable pull-ups (not necessary due to external pull-ups).
+    // DHT line has to be high in idle mode.
+    DDRB = 0x00;
+    DDRD = 0x00;
+    PORTB = 0xFF;
+    PORTD = 0xFF;
 }
 
 
@@ -247,122 +258,124 @@ static void io_init(){
 // Interrupts are disabled during readout.
 // Returns the number of sensors that could be read successfully.
 uint8_t read_all_dhts() {
-	// Number of successful readouts.
-	int8_t success_count = 0;
-	// Status code of last DHT readout.
-	int8_t code = 0;
-	// Global sensor numbers €[0..15]
-	uint8_t dht_no;
-	// Pin number in bank €[0..7]
-	uint8_t pin;
+    // Number of successful readouts.
+    int8_t success_count = 0;
+    // Status code of last DHT readout.
+    int8_t code = 0;
+    // Global sensor numbers [0..15]
+    uint8_t dht_no;
+    // Pin number in bank [0..7]
+    uint8_t pin;
 
-	// Reset DHT values.
-	memset(dht_values,0,sizeof(dht_values));
+    // Reset DHT values.
+    memset(dht_values, 0, sizeof(dht_values));
 
-	// Disable interrupts for tight timings.
-	cli();
+    // Disable interrupts for tight timings.
+    cli();
 
-	// Read all sensors, one after another.
-	// TODO if we want really high performance we could move the 1-10ms LOW out of this function into another preparation function and do that in parallel for all DHTs.
-	for (dht_no=0; dht_no < 16; dht_no++) {
-		pin = dht_no % 8;
+    // Read all sensors, one after another.
+    // TODO if we want really high performance we could move the 1-10ms LOW out of this function into another
+    // preparation function and do that in parallel for all DHTs.
+    for (dht_no = 0; dht_no < 16; dht_no++) {
+        pin = dht_no % 8;
 
-		// Read sensor.
-		// If this succeeds, the result is written to dht_values.
-		if (dht_no < 8) {
-			// Read sensors [0..7] from PORTD.
-			code = dht_read_portd(pin, dht_values + dht_no*6);
-			} else {
-			// Read sensors [8..15] from PORTB.
-			code = dht_read_portb(pin, dht_values + dht_no*6);
-		}
+        // Read sensor.
+        // If this succeeds, the result is written to dht_values.
+        if (dht_no < 8) {
+            // Read sensors [0..7] from PORTD.
+            code = dht_read_portd(pin, dht_values + dht_no * 6);
+        } else {
+            // Read sensors [8..15] from PORTB.
+            code = dht_read_portb(pin, dht_values + dht_no * 6);
+        }
 
-		// In case of failure: write status code for this DHT.
-		if (code != 0) {
-			dht_values[dht_no*6 + 5] = code;
-			}else{
-			++success_count;
-		}
-	}
-	
-	// Enable interrupts.
-	sei();
+        // In case of failure: write status code for this DHT.
+        if (code != 0) {
+            dht_values[dht_no * 6 + 5] = code;
+        } else {
+            ++success_count;
+        }
+    }
 
-	return success_count;
+    // Enable interrupts.
+    sei();
+
+    return success_count;
 }
 
 // Set output pins according to status register.
-static void synchronize_output_pins(void){
-	if ((i2cdata[0] & I2C_BIT_PC0)) {
-		PORTC |= (1<<PC0);
-		} else {
-		PORTC &= ~(1<<PC0);
-	}
+static void synchronize_output_pins(void) {
+    if ((i2cdata[0] & I2C_BIT_PC0)) {
+        PORTC |= (1 << PC0);
+    } else {
+        PORTC &= ~(1 << PC0);
+    }
 
-	if ((i2cdata[0] & I2C_BIT_PC1)) {
-		PORTC |= (1<<PC1);
-		} else {
-		PORTC &= ~(1<<PC1);
-	}
+    if ((i2cdata[0] & I2C_BIT_PC1)) {
+        PORTC |= (1 << PC1);
+    } else {
+        PORTC &= ~(1 << PC1);
+    }
 }
 
-int main(void){
+int main(void) {
+    // Set inputs/outputs.
+    io_init();
 
-	// Set inputs/outputs.
-	io_init();
+    // Clear DHT values.
+    memset(dht_values, 0, sizeof(dht_values));
 
-	// Clear DHT values.
-	memset(dht_values, 0, sizeof(dht_values));
+    // Clear I2C register buffer.
+    for (int i = 0; i < i2c_buffer_size; i++) {
+        i2cdata[i] = 0;
+    }
+    // 1 means no WDT reset occurred.
+    i2cdata[0] |= I2C_BIT_WDT_RESET;
 
-	// Clear I2C register buffer.
-	for (int i=0; i<i2c_buffer_size; i++) {
-		i2cdata[i] = 0;
-	}
-	// 1 means no WDT reset occurred.
-	i2cdata[0] |= I2C_BIT_WDT_RESET;
-	
-	// Enable watchdog to restart if we didn't reset it for 2 seconds.
-	wdt_enable(WDTO_2S);
-	// Enable I2C.
-	init_twi_slave(I2C_SLAVE_ADRESS);
-	// Enable Interrupts.
-	sei();
+    // Enable watchdog to restart if we didn't reset it for 2 seconds.
+    wdt_enable(WDTO_2S);
+    // Enable I2C.
+    init_twi_slave(I2C_SLAVE_ADDRESS);
+    // Enable Interrupts.
+    sei();
 
-	while (1)
-	{
-		_delay_ms(100);
-		PORTC ^= (1<<PC3); // Blink LED 1.
+    while (1) {
+        _delay_ms(100);
+        // Blink LED 1.
+        PORTC ^= (1 << PC3);
 
-		wdt_reset(); // Reset watchdog timer.
-		if(MCUCSR & (1 << WDRF)){
-			// A reset by the watchdog has occurred.
-			// Signal this by clearing bit 2 in status byte.
-			i2cdata[0] &= ~(I2C_BIT_WDT_RESET);
-			// Clear flag for next time.
-			MCUCSR &= ~(1<<WDRF);
-		}
+        // Reset watchdog timer.
+        wdt_reset();
+        if (MCUCSR & (1 << WDRF)) {
+            // A reset by the watchdog has occurred.
+            // Signal this by clearing bit 2 in status byte.
+            i2cdata[0] &= ~(I2C_BIT_WDT_RESET);
+            // Clear flag for next time.
+            MCUCSR &= ~(1 << WDRF);
+        }
 
-		// Set output pins according to status register.
-		synchronize_output_pins();
+        // Set output pins according to status register.
+        synchronize_output_pins();
 
-		// If there is a request to read DHTs...
-		if ((i2cdata[0] & I2C_BIT_READOUT)) {
-			// Signal readout begins.
-			PORTC |= (1<<PC2);
-			
-			// Read sensors and store number of successful readouts.
-			i2cdata[0] &= 0x0F; // Clear relevant bits.
-			i2cdata[0] |= (read_all_dhts() << 4);
+        // If there is a request to read DHTs...
+        if ((i2cdata[0] & I2C_BIT_READOUT)) {
+            // Signal readout begins.
+            PORTC |= (1 << PC2);
 
-			// Copy results to I2C buffer for readout.
-			for (int i=0; i<i2c_buffer_size-1;i++) {
-				i2cdata[i+1] = dht_values[i];
-			}
+            // Clear relevant bits.
+            i2cdata[0] &= 0x0F;
+            // Read sensors and store number of successful readouts.
+            i2cdata[0] |= (read_all_dhts() << 4);
 
-			// Clear bit one in status byte
-			i2cdata[0] &= ~I2C_BIT_READOUT;
-			// Signal readout over.
-			PORTC &= ~(1<<PC2);
-		}
-	}
+            // Copy results to I2C buffer for readout.
+            for (int i = 0; i < i2c_buffer_size - 1; i++) {
+                i2cdata[i + 1] = dht_values[i];
+            }
+
+            // Clear bit one in status byte
+            i2cdata[0] &= ~I2C_BIT_READOUT;
+            // Signal readout over.
+            PORTC &= ~(1 << PC2);
+        }
+    }
 }
