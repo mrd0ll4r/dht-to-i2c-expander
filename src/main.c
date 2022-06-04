@@ -73,7 +73,6 @@ PC3: LED 1
 #include <avr/interrupt.h>
 #include <avr/wdt.h>
 #include <util/delay.h>
-#include <util/twi.h>
 #include <string.h> // For memset.
 #include "twislave.h"
 
@@ -101,7 +100,6 @@ static uint8_t dht_values[(5 + 1) * 16];
 // This is for DHTs connected to port B.
 int8_t dht_read_portb(uint8_t pin, uint8_t dht_data[5]) {
     uint8_t bits[5]; // we always read 5 bytes from DHT
-    uint8_t i, j = 0;
 
     // Calculate these because we need them all the time.
     // If we don't do this they'll be recalculated all the time and mess up our timings.
@@ -132,12 +130,12 @@ int8_t dht_read_portb(uint8_t pin, uint8_t dht_data[5]) {
     _delay_us(80);
 
     // Read sensor data.
-    uint16_t timeout_counter = 0;
+    uint16_t timeout_counter;
     // For each byte (5 total)
-    for (j = 0; j < sizeof(bits); j++) {
+    for (uint8_t j = 0; j < sizeof(bits); j++) {
         uint8_t result = 0;
         // For each bit in each byte (8 total)
-        for (i = 0; i < 8; i++) {
+        for (uint8_t i = 0; i < 8; i++) {
             timeout_counter = 0;
             // Wait for a high input.
             while (!(PINB & pin_mask)) {
@@ -161,7 +159,7 @@ int8_t dht_read_portb(uint8_t pin, uint8_t dht_data[5]) {
         bits[j] = result;
     }
 
-    for (i = 0; i < sizeof(bits); i++) {
+    for (uint8_t i = 0; i < sizeof(bits); i++) {
         dht_data[i] = bits[i];
     }
 
@@ -172,7 +170,6 @@ int8_t dht_read_portb(uint8_t pin, uint8_t dht_data[5]) {
 // This is for DHTs connected to port D.
 int8_t dht_read_portd(uint8_t pin, uint8_t dht_data[5]) {
     uint8_t bits[5];    // we always read 5 bytes from DHT
-    uint8_t i, j = 0;
 
     // Calculate these because we need them all the time.
     // If we don't do this they'll be recalculated all the time and mess up our timings.
@@ -203,12 +200,12 @@ int8_t dht_read_portd(uint8_t pin, uint8_t dht_data[5]) {
     _delay_us(80);
 
     // Read sensor data.
-    uint16_t timeout_counter = 0;
+    uint16_t timeout_counter;
     // For each byte (5 total)
-    for (j = 0; j < sizeof(bits); j++) {
+    for (uint8_t j = 0; j < sizeof(bits); j++) {
         uint8_t result = 0;
         // For each bit in each byte (8 total)
-        for (i = 0; i < 8; i++) {
+        for (uint8_t i = 0; i < 8; i++) {
             timeout_counter = 0;
             // Wait for a high input
             while (!(PIND & pin_mask)) {
@@ -232,7 +229,7 @@ int8_t dht_read_portd(uint8_t pin, uint8_t dht_data[5]) {
         bits[j] = result;
     }
 
-    for (i = 0; i < sizeof(bits); i++) {
+    for (uint8_t i = 0; i < sizeof(bits); i++) {
         dht_data[i] = bits[i];
     }
 
@@ -260,8 +257,6 @@ static void io_init() {
 uint8_t read_all_dhts() {
     // Number of successful readouts.
     int8_t success_count = 0;
-    // Status code of last DHT readout.
-    int8_t code = 0;
     // Global sensor numbers [0..15]
     uint8_t dht_no;
     // Pin number in bank [0..7]
@@ -278,6 +273,8 @@ uint8_t read_all_dhts() {
     // preparation function and do that in parallel for all DHTs.
     for (dht_no = 0; dht_no < 16; dht_no++) {
         pin = dht_no % 8;
+        // Status code of last DHT readout.
+        int8_t code;
 
         // Read sensor.
         // If this succeeds, the result is written to dht_values.
@@ -365,15 +362,23 @@ int main(void) {
             // Clear relevant bits.
             i2cdata[0] &= 0x0F;
             // Read sensors and store number of successful readouts.
-            i2cdata[0] |= (read_all_dhts() << 4);
+            uint8_t retval = read_all_dhts();
+            {
+                cli();
 
-            // Copy results to I2C buffer for readout.
-            for (int i = 0; i < i2c_buffer_size - 1; i++) {
-                i2cdata[i + 1] = dht_values[i];
+                i2cdata[0] |= (retval << 4);
+
+                // Copy results to I2C buffer for readout.
+                for (int i = 0; i < i2c_buffer_size - 1; i++) {
+                    i2cdata[i + 1] = dht_values[i];
+                }
+
+                // Clear bit one in status byte
+                i2cdata[0] &= ~I2C_BIT_READOUT;
+
+                sei();
             }
 
-            // Clear bit one in status byte
-            i2cdata[0] &= ~I2C_BIT_READOUT;
             // Signal readout over.
             PORTC &= ~(1 << PC2);
         }

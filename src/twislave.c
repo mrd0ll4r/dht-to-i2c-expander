@@ -43,7 +43,7 @@ void init_twi_slave(uint8_t addr) {
 
 // TWI interrupt service routine
 ISR (TWI_vect) {
-    uint8_t data=0;
+    uint8_t data = 0;
 
     // Check TWI status register
     switch (TW_STATUS) {
@@ -55,9 +55,9 @@ ISR (TWI_vect) {
             TWCR_ACK;
             // Set "register address" to undefined
             buffer_addr = 0xFF;
-        break;
+            break;
 
-        // 0x80 Slave Receiver, a byte of data has been received
+            // 0x80 Slave Receiver, a byte of data has been received
         case TW_SR_DATA_ACK:
             // Read received data
             data = TWDR;
@@ -94,16 +94,16 @@ ISR (TWI_vect) {
                 // Receive next byte, ACK afterwards to request next byte
                 TWCR_ACK;
             }
-        break;
+            break;
 
 
-        //Slave transmitter
+            //Slave transmitter
 
-        //0xA8 Slave wurde im Lesemodus adressiert und hat ein ACK zurückgegeben.
+            //0xA8 Slave wurde im Lesemodus adressiert und hat ein ACK zurückgegeben.
         case TW_ST_SLA_ACK:
             // fallthrough
 
-        // 0xB8 Slave Transmitter, data requested
+            // 0xB8 Slave Transmitter, data requested
         case TW_ST_DATA_ACK:
             if (buffer_addr == 0xFF) {
                 // This is either a pure read transaction (no Write+Read) or something else went wrong.
@@ -111,7 +111,7 @@ ISR (TWI_vect) {
                 buffer_addr = 0x00;
             }
 
-            if (buffer_addr < i2c_buffer_size + 1) {
+            if (buffer_addr < i2c_buffer_size) {
                 // Send one byte of data
                 TWDR = i2cdata[buffer_addr];
                 // Auto increment address
@@ -121,16 +121,16 @@ ISR (TWI_vect) {
                 TWDR = 0xFE;
             }
             TWCR_ACK;
-        break;
+            break;
 
         case TW_SR_STOP:
             TWCR_ACK;
-        break;
+            break;
         case TW_ST_DATA_NACK: // 0xC0 Keine Daten mehr gefordert
         case TW_SR_DATA_NACK: // 0x88
         case TW_ST_LAST_DATA: // 0xC8  Last data byte in TWDR has been transmitted (TWEA = 0); ACK has been received
         default:
             TWCR_RESET;
-        break;
+            break;
     }
 }
