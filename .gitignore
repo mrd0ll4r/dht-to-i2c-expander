@@ -1,3 +1,10 @@
+# CLion-generated(?) cmake directories
+/cmake-build-debug
+/cmake-build-release
+
+# CLion directory itself
+/.idea
+
 # Prerequisites
 *.d
 
